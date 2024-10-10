@@ -31,8 +31,11 @@ UNTESTED_TOOLCHAIN_FILENAME=$(echo "$UNTESTED_TOOLCHAIN_URL" | awk '
                                            }
                                            {print FILENAME, basename(FILENAME)}')
 
-cd /
-curl "$UNTESTED_TOOLCHAIN_URL" > "$UNTESTED_TOOLCHAIN_FILENAME"
+echo "Download toolchain: $UNTESTED_TOOLCHAIN_URL"
 
+cd /
+curl -s "$UNTESTED_TOOLCHAIN_URL" > "$UNTESTED_TOOLCHAIN_FILENAME"
+
+echo "Extract toolchain: $UNTESTED_TOOLCHAIN_FILENAME"
 tar xzf "$UNTESTED_TOOLCHAIN_FILENAME"
 swift -version
