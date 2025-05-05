@@ -187,6 +187,7 @@ extension AnyJavaObject {
       parameterTypes: repeat (each Param).self,
       resultType: Result.self
     )
+    print("[swift][jni] Call '\(methodName)' for result \(Result.self)")
     return try javaMethodCall(
       method: methodID,
       args: repeat each arguments
