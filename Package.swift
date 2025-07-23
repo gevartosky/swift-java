@@ -31,11 +31,6 @@ func findJavaHome() -> String {
     return home
   }
 
-
-  if ProcessInfo.processInfo.environment["SPI_BUILD"] == "1" {
-    // just ignore that we're missing a JAVA_HOME when building in Swift Package Index
-    return ""
-  }
   fatalError("Please set the JAVA_HOME environment variable to point to where Java is installed.")
 }
 
