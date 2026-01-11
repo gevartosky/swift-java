@@ -78,18 +78,60 @@ extension JNISwift2JavaGenerator {
   /// Represents a synthetic protocol-like translation for escaping closures.
   /// This allows closures to use the same conversion infrastructure as protocols,
   /// providing support for optionals, arrays, custom types, async, etc.
-  struct SyntheticClosureFunction {
-    /// The wrap-java interface name (e.g., "JavaMyClass.setCallback.callback")
-    let wrapJavaInterfaceName: String
+  struct SyntheticClosureWrapper {
+    let syntheticProtocolName: String
+    let wrapperStructName: String)
+    let javaInterfaceName: String
 
-    /// Conversion steps for each parameter
+    /// The name of the variable holding the Java interface inside the wrapper
+    var javaInterfaceVariableName: String {
+      "_javaInterface"
+    }
+
+
     let parameterConversions: [UpcallConversionStep]
-
-    /// Conversion step for the result
     let resultConversion: UpcallConversionStep
 
     /// The original Swift function type
     let functionType: SwiftFunctionType
+
+    /// Parameter names for the apply method
+    var parameterNames: [String] {
+      functionType.parameters.enumerated().map { idx, param in
+        param.parameterName ?? "_\(idx)"
+      }
+    }
+
+    var isAsync: Bool {
+      functionType.isAsync
+    }
+
+    var isThrowing: Bool {
+      functionType.isThrowing
+    }
+
+    var resultType: SwiftType {
+      functionType.resultType
+    }
+
+    init(
+      parentName: String,
+      methodName: String,
+      parameterName: String,
+      javaInterfaceName: String,
+      parameterConversions: [UpcallConversionStep],
+      resultConversion: UpcallConversionStep,
+      functionType: SwiftFunctionType
+    ) {
+      self.syntheticProtocolName = "_SwiftClosure_\(parentName)_\(methodName)_\(parameterName)"
+        .replacingOccurrences(of: ".", with: "_")
+      self.wrapperStructName = "_SwiftClosureWrapper_\(parentName)_\(methodName)_\(parameterName)"
+        .replacingOccurrences(of: ".", with: "_")
+      self.javaInterfaceName = javaInterfaceName
+      self.parameterConversions = parameterConversions
+      self.resultConversion = resultConversion
+      self.functionType = functionType
+    }
   }
 
   struct JavaInterfaceProtocolWrapperGenerator {
@@ -121,13 +163,13 @@ extension JNISwift2JavaGenerator {
       )
     }
 
-        /// Generates a synthetic closure function translation.
-    /// This treats the closure as if it were a protocol with a single `apply` method,
-    /// allowing it to use the same conversion infrastructure for optionals, arrays, etc.
-    func generateSyntheticClosureFunction(
+    func generateSyntheticClosureWrapper(
       functionType: SwiftFunctionType,
-      wrapJavaInterfaceName: String
-    ) throws -> SyntheticClosureFunction {
+      parentName: String,
+      methodName: String,
+      parameterName: String,
+      javaInterfaceName: String
+    ) throws -> SyntheticClosureWrapper {
       let parameterConversions = try functionType.parameters.enumerated().map { idx, param in
         try self.translateParameter(
           parameterName: param.parameterName ?? "_\(idx)",
@@ -140,8 +182,11 @@ extension JNISwift2JavaGenerator {
         methodName: "apply"
       )
 
-      return SyntheticClosureFunction(
-        wrapJavaInterfaceName: wrapJavaInterfaceName,
+      return SyntheticClosureWrapper(
+        parentName: parentName,
+        methodName: methodName,
+        parameterName: parameterName,
+        javaInterfaceName: javaInterfaceName,
         parameterConversions: parameterConversions,
         resultConversion: resultConversion,
         functionType: functionType

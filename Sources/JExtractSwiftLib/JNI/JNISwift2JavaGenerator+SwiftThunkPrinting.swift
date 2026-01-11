@@ -425,6 +425,17 @@ extension JNISwift2JavaGenerator {
     _ printer: inout CodePrinter,
     _ decl: ImportedFunc
   ) {
+    // Generate protocol wrappers for protocol parameters
+    printProtocolParameterHelperClasses(&printer, decl)
+
+    // Generate synthetic protocol wrappers for escaping closure parameters
+    printEscapingClosureHelperClasses(&printer, decl)
+  }
+
+  private func printProtocolParameterHelperClasses(
+    _ printer: inout CodePrinter,
+    _ decl: ImportedFunc
+  ) {
     let protocolParameters = decl.functionSignature.parameters.compactMap { parameter in
       if let concreteType = parameter.type.typeIn(
         genericParameters: decl.functionSignature.genericParameters,
@@ -496,6 +507,118 @@ extension JNISwift2JavaGenerator {
         printer.printBraceBlock("init(\(initializerParameters))") { printer in
           for (name, _) in variables {
             printer.print("self.\(name) = \(name)")
+          }
+        }
+      }
+    }
+  }
+
+  /// Prints synthetic protocol and wrapper struct for each escaping closure parameter.
+  /// This mirrors the protocol wrapping infrastructure for closures.
+  private func printEscapingClosureHelperClasses(
+    _ printer: inout CodePrinter,
+    _ decl: ImportedFunc
+  ) {
+    let parentName = decl.parentType?.asNominalType?.nominalTypeDecl.qualifiedName ?? swiftModuleName
+    let methodName = decl.name
+
+    for parameter in decl.functionSignature.parameters {
+      guard let parameterName = parameter.parameterName,
+            case .function(let fn) = parameter.type,
+            fn.isEscaping else {
+        continue
+      }
+
+      // Generate the synthetic wrapper using the same infrastructure
+      let generator = JavaInterfaceProtocolWrapperGenerator()
+      let javaInterfaceName = "Java\(parentName).\(methodName).\(parameterName)"
+
+      guard let syntheticWrapper = try? generator.generateSyntheticClosureWrapper(
+        functionType: fn,
+        parentName: parentName,
+        methodName: methodName,
+        parameterName: parameterName,
+        javaInterfaceName: javaInterfaceName
+      ) else {
+        continue
+      }
+
+      printSyntheticClosureWrapper(&printer, syntheticWrapper)
+      printer.println()
+    }
+  }
+
+  private func printSyntheticClosureWrapper(
+    _ printer: inout CodePrinter,
+    _ wrapper: SyntheticClosureWrapper
+  ) {
+    let fn = wrapper.functionType
+    let parameterNames = wrapper.parameterNames
+
+    let parameterList = zip(parameterNames, fn.parameters).map { name, param in
+      "_ \(name): \(param.type)"
+    }.joined(separator: ", ")
+
+    let asyncSpecifier = wrapper.isAsync ? " async" : ""
+    let throwsSpecifier = wrapper.isThrowing ? " throws" : ""
+    let returnType = wrapper.resultType.isVoid ? "" : " -> \(wrapper.resultType)"
+    let methodSignature = "func apply(\(parameterList))\(asyncSpecifier)\(throwsSpecifier)\(returnType)"
+
+    printer.printBraceBlock("protocol \(wrapper.syntheticProtocolName)") { printer in
+      printer.print(methodSignature)
+    }
+    printer.println()
+
+    printer.printBraceBlock("struct \(wrapper.wrapperStructName): \(wrapper.syntheticProtocolName)") { printer in
+      printer.print("let javaInterface: \(wrapper.javaInterfaceName)")
+      printer.println()
+
+      printer.printBraceBlock("init(javaInterface: \(wrapper.javaInterfaceName))") { printer in
+        printer.print("self.javaInterface = javaInterface")
+      }
+      printer.println()
+
+      // The apply method implementation
+      printer.printBraceBlock(methodSignature) { printer in
+        var upcallArguments: [String] = []
+        for (idx, conversion) in wrapper.parameterConversions.enumerated() {
+          let paramName = parameterNames[idx]
+          let converted = conversion.render(&printer, paramName)
+          upcallArguments.append(converted)
+        }
+
+        if wrapper.isAsync {
+          let dynamicArgs = upcallArguments.map { "arguments: \($0)" }.joined(separator: ", ")
+          let dynamicCall: String
+          if upcallArguments.isEmpty {
+            dynamicCall = "try! javaInterface.dynamicJavaMethodCall(methodName: \"apply\", resultType: JavaCompletableFuture<JavaObject>?.self)"
+          } else {
+            dynamicCall = "try! javaInterface.dynamicJavaMethodCall(methodName: \"apply\", \(dynamicArgs), resultType: JavaCompletableFuture<JavaObject>?.self)"
+          }
+          
+          printer.print("let future$ = \(dynamicCall)")
+          
+          if wrapper.resultType.isVoid {
+            printer.print("_ = future$!.get()")
+          } else {
+            printer.print("let futureResult$ = future$!.get()")
+            
+            if wrapper.resultType.isDirectlyTranslatedToWrapJava {
+              printer.print("let environment$ = try! JavaVirtualMachine.shared().environment()")
+              printer.print("return \(wrapper.resultType)(fromJNI: futureResult$?.javaThis, in: environment$)")
+            } else {
+              let result = wrapper.resultConversion.render(&printer, "futureResult$")
+              printer.print("return \(result)")
+            }
+          }
+        } else {
+          let javaUpcall = "javaInterface.apply(\(upcallArguments.joined(separator: ", ")))"
+          let result = wrapper.resultConversion.render(&printer, javaUpcall)
+
+          if wrapper.resultType.isVoid {
+            printer.print(result)
+          } else {
+            printer.print("return \(result)")
           }
         }
       }

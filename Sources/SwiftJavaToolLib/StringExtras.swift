@@ -35,6 +35,11 @@ extension String {
     return "`\(self)`"
   }
 
+  /// Escape each component of a dotted type path if it's a Swift keyword. "JavaFoo.init.Bar" becomes "JavaFoo.`init`.Bar".
+  var escapedSwiftTypePath: String {
+    split(separator: ".").map { String($0).escapedSwiftName }.joined(separator: ".")
+  }
+
   /// Returns whether this is a valid Swift function name
   var isValidSwiftFunctionName: Bool {
     !self.starts(with: "$")

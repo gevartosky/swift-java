@@ -267,7 +267,24 @@ extension JNISwift2JavaGenerator {
         )
       }
 
-      let translatedResult = try translate(swiftResult: SwiftResult(convention: .direct, type: swiftType.resultType))
+      var translatedResult = try translate(swiftResult: SwiftResult(convention: .direct, type: swiftType.resultType))
+
+      if swiftType.isAsync {
+        let innerType = translatedResult.javaType
+        let futureType: JavaType
+        if innerType.isVoid {
+          futureType = .class(package: "java.util.concurrent", name: "CompletableFuture", typeParameters: [.class(package: "java.lang", name: "Void")])
+        } else {
+          let boxedType = innerType.boxedType
+          futureType = .class(package: "java.util.concurrent", name: "CompletableFuture", typeParameters: [boxedType])
+        }
+        translatedResult = TranslatedResult(
+          javaType: futureType,
+          annotations: translatedResult.annotations,
+          outParameters: translatedResult.outParameters,
+          conversion: translatedResult.conversion
+        )
+      }
 
       return TranslatedFunctionType(
         name: name,

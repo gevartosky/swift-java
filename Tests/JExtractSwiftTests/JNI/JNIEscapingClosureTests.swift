@@ -105,8 +105,50 @@ struct JNIEscapingClosureTests {
       .swift,
       detectChunkByInitialLines: 1,
       expectedChunks: [
+        // Synthetic protocol
+        """
+        protocol _SwiftClosure_SwiftModule_setCallback_callback {
+          func apply()
+        }
+        """,
+        // Wrapper struct
+        """
+        struct _SwiftClosureWrapper_SwiftModule_setCallback_callback: _SwiftClosure_SwiftModule_setCallback_callback {
+        """,
+        // JavaObjectHolder for escaping closure lifetime management
         """
         let closureContext_callback$ = JavaObjectHolder(object: callback, environment: environment)
+        """,
+        // Wrapper instantiation
+        """
+        let protocolWrapper$ = _SwiftClosureWrapper_SwiftModule_setCallback_callback(javaInterface: javaInterface$)
+        """
+      ]
+    )
+  }
+
+  @Test
+  func asyncEscapingClosure_swiftThunks() throws {
+    let source =
+      """
+      public func setAsyncCallback(callback: @escaping (Int64) async -> Int64) {}
+      """
+    
+    try assertOutput(
+      input: source,
+      .jni,
+      .swift,
+      detectChunkByInitialLines: 1,
+      expectedChunks: [
+        // Synthetic protocol with async
+        """
+        protocol _SwiftClosure_SwiftModule_setAsyncCallback_callback {
+          func apply(_ _0: Int64) async -> Int64
+        }
+        """,
+        // Wrapper struct
+        """
+        struct _SwiftClosureWrapper_SwiftModule_setAsyncCallback_callback: _SwiftClosure_SwiftModule_setAsyncCallback_callback {
         """
       ]
     )
@@ -124,6 +166,40 @@ struct JNIEscapingClosureTests {
       @FunctionalInterface
       public interface closure {
         void apply();
+      }
+      """
+    ])
+  }
+
+  @Test
+  func asyncEscapingClosure_javaBindings_returnsCompletableFuture() throws {
+    let source =
+      """
+      public func setAsyncCallback(callback: @escaping (Int64) async -> Int64) {}
+      """
+    
+    try assertOutput(input: source, .jni, .java, expectedChunks: [
+      """
+      @FunctionalInterface
+      public interface callback {
+        java.util.concurrent.CompletableFuture<java.lang.Long> apply(long _0);
+      }
+      """
+    ])
+  }
+
+  @Test
+  func asyncVoidEscapingClosure_javaBindings_returnsCompletableFutureVoid() throws {
+    let source =
+      """
+      public func setAsyncVoidCallback(callback: @escaping () async -> Void) {}
+      """
+    
+    try assertOutput(input: source, .jni, .java, expectedChunks: [
+      """
+      @FunctionalInterface
+      public interface callback {
+        java.util.concurrent.CompletableFuture<java.lang.Void> apply();
       }
       """
     ])

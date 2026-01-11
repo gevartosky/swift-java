@@ -79,5 +79,32 @@ extension JavaType {
       false
     }
   }
+
+  /// Returns the boxed (object) version of a primitive type.
+  /// For non-primitive types, returns self.
+  public var boxedType: JavaType {
+    switch self {
+    case .boolean:
+      return .class(package: "java.lang", name: "Boolean")
+    case .byte:
+      return .class(package: "java.lang", name: "Byte")
+    case .char:
+      return .class(package: "java.lang", name: "Character")
+    case .short:
+      return .class(package: "java.lang", name: "Short")
+    case .int:
+      return .class(package: "java.lang", name: "Integer")
+    case .long:
+      return .class(package: "java.lang", name: "Long")
+    case .float:
+      return .class(package: "java.lang", name: "Float")
+    case .double:
+      return .class(package: "java.lang", name: "Double")
+    case .void:
+      return .class(package: "java.lang", name: "Void")
+    case .class, .array:
+      return self
+    }
+  }
 }
 

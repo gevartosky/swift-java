@@ -16,7 +16,9 @@ package com.example.swift;
 
 import org.junit.jupiter.api.Test;
 import org.swift.swiftkit.core.SwiftArena;
-import java.util.OptionalLong;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -54,20 +56,26 @@ public class EscapingClosuresTest {
     }
     
     @Test
-    void testCallbackManager_intCallback() {
+    void testCallbackManager_intCallback() throws ExecutionException, InterruptedException {
         try (var arena = SwiftArena.ofConfined()) {
             CallbackManager manager = CallbackManager.init(arena);
             
+            // The callback is async in Swift: (Int64) async -> CustomResult
+            // So in Java it returns CompletableFuture<CustomResult>
             CallbackManager.setIntCallback.callback callback = (value) -> {
-                return value * 2;
+                // error is Optional<String> in the generated Java API (Swift's String?)
+                CustomResult result = CustomResult.init(value * 2, Optional.empty(), arena);
+                return CompletableFuture.completedFuture(result);
             };
             
             manager.setIntCallback(callback);
             
-            // Trigger the callback - returns OptionalLong since Swift returns Int64?
-            OptionalLong result = manager.triggerIntCallback(21);
-            assertTrue(result.isPresent(), "Result should be present");
-            assertEquals(42, result.getAsLong(), "Callback should double the input");
+            // Trigger the callback - returns CompletableFuture<Optional<CustomResult>> 
+            // since Swift's triggerIntCallback is async and returns CustomResult?
+            CompletableFuture<Optional<CustomResult>> futureResult = manager.triggerIntCallback(21, arena);
+            Optional<CustomResult> optionalResult = futureResult.get();
+            assertTrue(optionalResult.isPresent(), "Result should be present");
+            assertEquals(42, optionalResult.get().getValue(), "Callback should double the input");
         }
     }
     

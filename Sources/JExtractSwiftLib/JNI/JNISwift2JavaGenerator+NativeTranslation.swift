@@ -156,11 +156,14 @@ extension JNISwift2JavaGenerator {
         if fn.isEscaping {
           // Use the protocol infrastructure for escaping closures.
           // This provides full support for optionals, arrays, custom types, async, etc.
-          let wrapJavaInterfaceName = "Java\(parentName).\(methodName).\(parameterName)"
+          let javaInterfaceName = "Java\(parentName).\(methodName).\(parameterName)"
           let generator = JavaInterfaceProtocolWrapperGenerator()
-          let syntheticFunction = try generator.generateSyntheticClosureFunction(
+          let syntheticWrapper = try generator.generateSyntheticClosureWrapper(
             functionType: fn,
-            wrapJavaInterfaceName: wrapJavaInterfaceName
+            parentName: parentName,
+            methodName: methodName,
+            parameterName: parameterName,
+            javaInterfaceName: javaInterfaceName
           )
 
           return NativeParameter(
@@ -168,7 +171,7 @@ extension JNISwift2JavaGenerator {
               JavaParameter(name: parameterName, type: .class(package: javaPackage, name: "\(parentName).\(methodName).\(parameterName)"))
             ],
             conversion: .escapingClosureLowering(
-              syntheticFunction: syntheticFunction,
+              syntheticWrapper: syntheticWrapper,
               closureName: parameterName
             )
           )
@@ -726,10 +729,11 @@ extension JNISwift2JavaGenerator {
 
     indirect case closureLowering(parameters: [NativeParameter], result: NativeResult)
     
-    /// Escaping closure lowering using the protocol infrastructure.
-    /// This uses UpcallConversionStep for full support of optionals, arrays, custom types, etc.
+    /// Escaping closure lowering using the synthetic protocol infrastructure.
+    /// This generates a synthetic protocol and wrapper struct that mirrors the protocol wrapping,
+    /// providing full support for optionals, arrays, custom types, async, etc.
     indirect case escapingClosureLowering(
-      syntheticFunction: SyntheticClosureFunction,
+      syntheticWrapper: SyntheticClosureWrapper,
       closureName: String
     )
 
@@ -958,38 +962,32 @@ extension JNISwift2JavaGenerator {
 
         return printer.finalize()
       
-      case .escapingClosureLowering(let syntheticFunction, let closureName):
+      case .escapingClosureLowering(let syntheticWrapper, let closureName):
         var printer = CodePrinter()
 
-        let fn = syntheticFunction.functionType
-        let parameterNames = fn.parameters.enumerated().map { idx, param in
-          param.parameterName ?? "_\(idx)"
-        }
+        let fn = syntheticWrapper.functionType
+        let parameterNames = syntheticWrapper.parameterNames
         let closureParameters = parameterNames.joined(separator: ", ")
-        let isVoid = fn.resultType == .tuple([])
+        let isVoid = syntheticWrapper.resultType == .tuple([])
 
-        // Build upcall arguments using UpcallConversionStep conversions
-        var upcallArguments: [String] = []
-        for (idx, conversion) in syntheticFunction.parameterConversions.enumerated() {
-          var argPrinter = CodePrinter()
-          let paramName = parameterNames[idx]
-          let converted = conversion.render(&argPrinter, paramName)
-          upcallArguments.append(converted)
+
+        let asyncSpecifier = syntheticWrapper.isAsync ? " async" : ""
+        let throwsSpecifier = syntheticWrapper.isThrowing ? " throws" : ""
+        let effectSpecifiers = "\(asyncSpecifier)\(throwsSpecifier)"
+        
+        // For closures with parameters, include "in" keyword
+        let closureHeader: String
+        if fn.parameters.isEmpty {
+          closureHeader = effectSpecifiers.isEmpty ? "{" : "{\(effectSpecifiers) in"
+        } else {
+          closureHeader = "{ \(closureParameters)\(effectSpecifiers) in"
         }
 
-        // Build result conversion
-        // Note: The Java interface is synchronous even for async closures.
-        // The async nature is on the Swift side, inferred from the expected type.
-        var resultPrinter = CodePrinter()
-        let upcallExpr = "javaInterface$.apply(\(upcallArguments.joined(separator: ", ")))"
-        let resultConverted = syntheticFunction.resultConversion.render(&resultPrinter, upcallExpr)
-        let resultPrefix = resultPrinter.finalize()
 
-        // Note: async is part of the closure TYPE, not the closure literal syntax.
-        // For closures without parameters, we can omit "in" entirely.
-        let closureHeader = fn.parameters.isEmpty
-          ? "{"
-          : "{ \(closureParameters) in"
+        let applyArgs = parameterNames.joined(separator: ", ")
+        let awaitPrefix = syntheticWrapper.isAsync ? "await " : ""
+        let applyCall = "\(awaitPrefix)protocolWrapper$.apply(\(applyArgs))"
+        let returnStatement = isVoid ? applyCall : "return \(applyCall)"
 
         printer.print(
           """
@@ -1005,8 +1003,9 @@ extension JNISwift2JavaGenerator {
                 fatalError(\"Failed to get JNI environment for escaping closure call\")
               }
 
-              let javaInterface$ = \(syntheticFunction.wrapJavaInterfaceName)(javaThis: closureContext_\(closureName)$.object!, environment: env$)
-              \(resultPrefix)\(isVoid ? resultConverted : "return \(resultConverted)")
+              let javaInterface$ = \(syntheticWrapper.javaInterfaceName)(javaThis: closureContext_\(closureName)$.object!, environment: env$)
+              let protocolWrapper$ = \(syntheticWrapper.wrapperStructName)(javaInterface: javaInterface$)
+              \(returnStatement)
             }
           }()
           """

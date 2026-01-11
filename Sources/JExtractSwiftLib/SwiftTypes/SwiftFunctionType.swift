@@ -24,6 +24,8 @@ struct SwiftFunctionType: Equatable {
   var parameters: [SwiftParameter]
   var resultType: SwiftType
   var isEscaping: Bool = false
+  var isAsync: Bool = false
+  var isThrowing: Bool = false
 }
 
 extension SwiftFunctionType: CustomStringConvertible {
@@ -34,7 +36,9 @@ extension SwiftFunctionType: CustomStringConvertible {
     case .swift: ""
     }
     let escapingPrefix = isEscaping ? "@escaping " : ""
-    return  "\(escapingPrefix)\(conventionPrefix)(\(parameterString)) -> \(resultType.description)"
+    let asyncSuffix = isAsync ? " async" : ""
+    let throwsSuffix = isThrowing ? " throws" : ""
+    return  "\(escapingPrefix)\(conventionPrefix)(\(parameterString))\(asyncSuffix)\(throwsSuffix) -> \(resultType.description)"
   }
 }
 
@@ -57,12 +61,8 @@ extension SwiftFunctionType {
 
     self.resultType = try SwiftType(node.returnClause.type, lookupContext: lookupContext)
 
-    // check for effect specifiers
-    if let throwsClause = node.effectSpecifiers?.throwsClause {
-      throw SwiftFunctionTranslationError.throws(throwsClause)
-    }
-    if let asyncSpecifier = node.effectSpecifiers?.asyncSpecifier {
-      throw SwiftFunctionTranslationError.async(asyncSpecifier)
-    }
+    // check effect specifiers
+    self.isThrowing = node.effectSpecifiers?.throwsClause != nil
+    self.isAsync = node.effectSpecifiers?.asyncSpecifier != nil
   }
 }

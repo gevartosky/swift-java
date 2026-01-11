@@ -96,12 +96,13 @@ struct JavaClassTranslator {
 
   /// The name of the enclosing Swift type, if there is one.
   var swiftParentType: String? {
-    swiftTypeName.splitSwiftTypeName().parentType
+    swiftTypeName.splitSwiftTypeName().parentType?.escapedSwiftTypePath
   }
 
   /// The name of the innermost Swift type, without the enclosing type.
+  /// If the name is a Swift keyword (like `init`), it is escaped with backticks.
   var swiftInnermostTypeName: String {
-    swiftTypeName.splitSwiftTypeName().name
+    swiftTypeName.splitSwiftTypeName().name.escapedSwiftName
   }
 
   /// The generic parameter clause for the Swift version of the Java class.

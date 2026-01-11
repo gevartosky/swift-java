@@ -12,11 +12,63 @@
 //
 //===----------------------------------------------------------------------===//
 
+public struct CustomResult {
+  public let value: Int64
+  public let error: String?
+
+  public init(value: Int64, error: String?) {
+    self.value = value
+    self.error = error
+  }
+}
+
+public struct CustomerSupportClient: @unchecked Sendable {
+    public var _getUserLoginStatus: () -> Bool
+    public var _getCustomerSupportProfile: (String) async -> String
+
+    public func getUserLoginStatus() -> Bool {
+        return _getUserLoginStatus()
+    }
+
+    public func getCustomerSupportProfile(_ profile: String) async -> String {
+        return await _getCustomerSupportProfile(profile)
+    }
+    
+    public static func make(
+        getUserLoginStatus: @escaping () -> Bool,
+        getCustomerSupportProfile: @escaping (String) async -> String
+    ) -> CustomerSupportClient {
+        CustomerSupportClient(
+            getUserLoginStatus: getUserLoginStatus,
+            getCustomerSupportProfile: getCustomerSupportProfile
+        )
+    }
+    
+    private init(
+        getUserLoginStatus: @escaping () -> Bool,
+        getCustomerSupportProfile: @escaping (String) async -> String
+    ) {
+        self._getUserLoginStatus = getUserLoginStatus
+        self._getCustomerSupportProfile = getCustomerSupportProfile
+    }
+
+    public static var mockSuccess: CustomerSupportClient {
+        CustomerSupportClient(
+            getUserLoginStatus: { true },
+            getCustomerSupportProfile: { _ in "" }
+        )
+    }
+}
+
 public class CallbackManager {
   private var callback: (() -> Void)?
-  private var intCallback: ((Int64) -> Int64)?
+  public var intCallback: ((Int64) async -> CustomResult)?
   
   public init() {}
+
+  public static func make(a: @escaping () -> Void, b: @escaping (Int64) async -> CustomResult) -> CallbackManager {
+    CallbackManager(callback: a, intCallback: b)
+  }
   
   public func setCallback(callback: @escaping () -> Void) {
     self.callback = callback
@@ -30,20 +82,25 @@ public class CallbackManager {
     callback = nil
   }
   
-  public func setIntCallback(callback: @escaping (Int64) -> Int64) {
+  public func setIntCallback(callback: @escaping (Int64) async -> CustomResult) {
     self.intCallback = callback
   }
   
-  public func triggerIntCallback(value: Int64) -> Int64? {
-    return intCallback?(value)
+  public func triggerIntCallback(value: Int64) async -> CustomResult? {
+    return await intCallback?(value)
+  }
+
+  private init(callback: @escaping () -> Void, intCallback: @escaping (Int64) async -> CustomResult) {
+    self.callback = callback
+    self.intCallback = intCallback
   }
 }
 
-// public func delayedExecution(closure: @escaping (Int64) -> Int64, input: Int64) -> Int64 {
-//   // In a real implementation, this might be async
-//   // For testing purposes, we just call it synchronously
-//   return closure(input)
-// }
+public func delayedExecution(closure: @escaping (Int64) -> Int64, input: Int64) -> Int64 {
+  // In a real implementation, this might be async
+  // For testing purposes, we just call it synchronously
+  return closure(input)
+}
 
 public class ClosureStore {
   private var closures: [() -> Void] = []
